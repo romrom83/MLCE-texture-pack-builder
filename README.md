@@ -11,8 +11,10 @@ https://github.com/ContinuedOak/Legacy-Edition-Resource-Packs
 thanks so much to ContinuedOak for providing this pack!
 
 What's left to do:  
-- Languages.loc  
-- Colours.col
 
-Those files are used to override any text and color in the game, that's also why I call those ressource packs and not texture packs!
+Languages.loc  
+Colours.col  
+Media.arc
+
+Those files are used to override any text color and UI in the game, that's also why I'd be more inclined to call them ressource packs and not texture packs!
 
