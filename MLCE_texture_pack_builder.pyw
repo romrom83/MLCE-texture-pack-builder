@@ -3,6 +3,23 @@ import os
 import struct
 import argparse
 
+def launch_console(): # this is such a stupid fix
+    if os.name != 'nt':
+        return False
+    try:
+        import ctypes
+        ATTACH_PARENT_PROCESS = -1
+        if ctypes.windll.kernel32.AttachConsole(ATTACH_PARENT_PROCESS): # i stole this snippet from the internet lmao
+            try:
+                sys.stdout = open("CONOUT$", "w")
+                sys.stderr = open("CONOUT$", "w")
+            except Exception:
+                pass
+            return True
+    except Exception:
+        pass
+    return False
+
 # it writes two .pck files, an info pack (the icon etc) and a texture pack
 # TODO potentially .arc file for the UI? i know it uses .swf files and i have no idea how they work
 
@@ -30,11 +47,11 @@ def make_param(type_id, value):
 
 def build_pack(param_map, files):
     pack = bytearray()
-    pack += pack_u32(3) # pack version, 4J's minimum is at 3
+    pack += pack_u32(3) # pack version, 4J's minimum is 3
     keys = sorted(param_map.keys())
     pack += pack_u32(len(keys))
     for k in keys:
-        pack += make_param(k, param_map[k]) # this is the header
+        pack += make_param(k, param_map[k]) # this makes the header
 
     pack += pack_u32(len(files))
     for f in files:
@@ -60,10 +77,9 @@ def create_packs(source_dir, pack_id=6767, scale=16, output_path=None):
         output_path = os.path.join(os.getcwd(), "output")
     data_path = os.path.join(output_path, "Data")
 
-    if not os.path.exists(data_path):
-        os.makedirs(data_path, exist_ok=True)
+    os.makedirs(data_path, exist_ok=True)
 
-    all_files = []     # ugly ugly but it works
+    all_files = []
     for root, dirs, filenames in os.walk(source_dir):
         for f in filenames:
             if f.lower().endswith(".png") or f.lower().endswith(".col"):
@@ -148,6 +164,9 @@ def main():
         args.gui = True
         initial_source = os.path.abspath(args.source_dir)
 
+    if len(sys.argv) > 1 and not args.gui:
+        launch_console()
+
     if args.gui:
         try:
             import tkinter as tk
@@ -172,10 +191,9 @@ def main():
         image_label.grid(row=0, column=3, rowspan=3, padx=8, pady=4)
 
         def browse():
-            d = filedialog.askdirectory()
-            if d:
-                src_var.set(d)
-                update_icon_preview(d)
+            folder = filedialog.askdirectory()
+            src_var.set(folder)
+            update_icon_preview(folder)
 
         def update_icon_preview(folder):
             nonlocal img_holder
@@ -184,20 +202,19 @@ def main():
                 image_label.config(image="", text="No icon.png")
                 img_holder = None
                 return
-            
             try:
-                from PIL import Image, ImageTk
+                from PIL import Image, ImageTk # if we have pillow
                 img = Image.open(icon_path)
-                previewheight, previewwidth = 256, 256
-                imgwidth, imageheight = img.size
-                scale = min(previewheight / imgwidth, previewwidth / imageheight)
-                new_size = int(imgwidth * scale), int(imageheight * scale)
+                preview_w, preview_h = 256, 256
+                img_w, img_h = img.size
+                scale = min(preview_w / img_w, preview_h / img_h)
+                new_size = (max(1, int(img_w * scale)), max(1, int(img_h * scale)))
                 img = img.resize(new_size, Image.LANCZOS)
                 img_holder = ImageTk.PhotoImage(img)
                 image_label.config(image=img_holder, text="")
             except Exception:
                 try:
-                    img_holder = tk.PhotoImage(file=icon_path) # if they dont have PIL we just display the image
+                    img_holder = tk.PhotoImage(file=icon_path)
                     image_label.config(image=img_holder, text="")
                 except Exception:
                     image_label.config(image="", text="Can't load icon")
@@ -234,18 +251,20 @@ def main():
 
         tk.Button(root, text="Convert!", command=do_convert, width=20).grid(row=5, column=1, pady=8)
         if initial_source:
-            src_var.set(initial_source)
-            root.after(100, lambda: update_icon_preview(initial_source))
+            root.after(100, lambda: update_icon_preview(initial_source)) # thanks tkdocs.com
             
         root.mainloop()
         return
 
-    if not args.source_dir:
-        print("Usage: python script.py <source_dir> or use --gui")
-        return
+    if not args.gui:
+        # console mode
+        if not args.source_dir:
+            parser.print_help()
+            return
 
-    out = create_packs(args.source_dir, pack_id=args.id, scale=int(args.scale))
-    print("All done! Output:", out)
+        out = create_packs(args.source_dir, pack_id=args.id, scale=int(args.scale))
+        print("All done! Output:", out)
+
 
 if __name__ == "__main__":
     main()
