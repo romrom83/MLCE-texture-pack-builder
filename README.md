@@ -18,3 +18,5 @@ Media.arc
 
 Those files are used to override any text color and UI in the game, that's also why I'd be more inclined to call them ressource packs and not texture packs!
 
+If you dont trust the exe you can compile the .py yourself, you just need pillow and tkinter
+
