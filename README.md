@@ -10,11 +10,9 @@ Example of what the pack should look like at the end:
 https://github.com/ContinuedOak/Legacy-Edition-Resource-Packs  
 thanks so much to ContinuedOak for providing this pack!
 
-What's left to do:  
-
-Languages.loc  
-Colours.col  
-Media.arc
+What will be added next:
+- Support for the following files: Languages.loc Colours.col Media.arc
+- Java to LCE texture pack automatic converter (currently you have to stitch your texture atlas yourself)
 
 Those files are used to override any text color and UI in the game, that's also why I'd be more inclined to call them ressource packs and not texture packs!
 
