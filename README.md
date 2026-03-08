@@ -1,4 +1,4 @@
-**Right now it's broken on the MinecraftConsole fork due to some patches they added, it will still work on the original source code**
+**Currently broken on the MinecraftConsole fork due to some patches they added, it will still work on the original source code while i'm working to make this compatible with both**
 
 # MLCE-texture-pack-builder
 Simple python script to make custom texture packs for Minecraft Legacy Console Edition
