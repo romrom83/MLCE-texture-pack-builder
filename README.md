@@ -1,3 +1,5 @@
+**CURRENTLY BROKEN FUUUCK**
+
 # MLCE-texture-pack-builder
 Simple python script to make custom texture packs for Minecraft Legacy Console Edition
 
