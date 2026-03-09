@@ -3,13 +3,240 @@ import os
 import struct
 import argparse
 
-def launch_console(): # this is such a stupid fix
+PARAM_ID_ENUM = {
+    0: "DISPLAYNAME",
+    1: "THEMENAME",
+    2: "FREE",
+    3: "CREDIT",
+    4: "CAPEPATH",
+    5: "BOX",
+    6: "ANIM",
+    7: "PACKID",
+    8: "NETHERPARTICLECOLOUR",
+    9: "ENCHANTTEXTCOLOUR",
+    10: "ENCHANTTEXTFOCUSCOLOUR",
+    11: "DATAPATH",
+    12: "PACKVERSION",
+}
+locales = [
+            "en-EN",
+            "de-DE",
+            "fr-FR",
+            "it-IT",
+            "es-ES",
+            "pt-PT",
+            "ja-JP",
+            "ko-KR",
+            "pt-BR",
+            "zh-CHT",
+        ]
+TYPE_TEXTURE = 2
+TYPE_PACKCONFIG = 4
+TYPE_TEXTUREPACK = 5
+TYPE_LOCALISATION = 6
+TYPE_COLOURTABLE = 9
+
+
+def pack_u32(value):
+    return struct.pack("<I", int(value) & 0xFFFFFFFF)
+
+
+def utf16z(text):
+    return (text + "\0").encode("utf-16-le")
+
+
+def make_param(type_id, value):
+    s = value or ""
+    out = bytearray()
+    out += pack_u32(type_id)
+    wch_count = len(utf16z(s)) // 2 - 1
+    out += pack_u32(wch_count)
+    out += utf16z(s)
+    out += b"\x00\x00"
+    return bytes(out)
+
+
+def build_pack(param_map, files): # big and ugly but works
+    pack = bytearray()
+    pack += pack_u32(3)
+    keys = sorted(param_map.keys())
+    pack += pack_u32(len(keys))
+    for k in keys:
+        pack += make_param(k, param_map[k])
+
+    pack += pack_u32(len(files))
+    for f in files:
+        name = f.get("name") or ""
+        pack += struct.pack("<I", len(f.get("payload") or b"") & 0xFFFFFFFF)
+        pack += struct.pack("<I", int(f.get("type")) & 0xFFFFFFFF)
+        name_wch_count = len(utf16z(name)) // 2 - 1
+        pack += struct.pack("<I", name_wch_count)
+        pack += (name + "\0").encode("utf-16-le")
+        pack += b"\x00\x00"
+
+    for f in files:
+        params = f.get("params", [])
+        pack += pack_u32(len(params))
+        for (tid, val) in params:
+            pack += make_param(tid, val)
+        pack += f.get("payload") or b""
+
+    return bytes(pack)
+
+
+def create_packs(source_dir, pack_id=6767, scale=16, output_path=None, display_name_override=None, description_override=None):
+    if not output_path:
+        output_path = os.path.join(os.getcwd(), "output")
+    data_path = os.path.join(output_path, "Data")
+    os.makedirs(data_path, exist_ok=True)
+
+    all_files = []
+    for root, dirs, filenames in os.walk(source_dir):
+        for f in filenames:
+            if f.lower().endswith(".png") or f.lower().endswith(".col"):
+                all_files.append(os.path.join(root, f))
+    if not all_files:
+        raise RuntimeError("No files found in source folder; wrong folder structure?")
+
+    display_name = None
+    pack_version = None
+
+    if display_name_override is not None and display_name_override != "":
+        display_name = display_name_override
+    pack_description = None
+    if description_override is not None and description_override != "":
+        pack_description = description_override
+
+    data_map = {}
+    for p in all_files:
+        rel = os.path.relpath(p, source_dir).replace("\\", "/")
+        name_lower = os.path.basename(p).lower()
+        if name_lower in ["icon.png", "comparison.png", "banner.png", "languages.loc"]:
+            continue
+        if name_lower == "colours.col":
+            internal_path = "colours.col"
+        elif rel.lower().startswith("res/"):
+            internal_path = rel
+        else:
+            internal_path = "res/" + rel
+        with open(p, "rb") as f:
+            data_map[internal_path] = f.read()
+    # config
+    files = []
+    files.append({"type": TYPE_PACKCONFIG, "name": "0", "params": [(7, str(pack_id)), (12, "0")], "payload": b""})
+    for rel in sorted(data_map.keys()):
+        t = TYPE_COLOURTABLE if rel.lower().endswith(".col") else TYPE_TEXTURE
+        files.append({"type": t, "name": rel, "params": [], "payload": data_map[rel]})
+
+    data_bytes = build_pack(PARAM_ID_ENUM, files)
+    data_filename = "x" + str(scale) + "Data.pck"
+
+    with open(os.path.join(data_path, data_filename), "wb") as f:
+        f.write(data_bytes)
+
+    # info pck
+    info_files = []
+    for img_name in ["icon.png", "banner.png", "comparison.png"]:
+        full_p = os.path.join(source_dir, img_name)
+        if os.path.exists(full_p):
+            with open(full_p, "rb") as f:
+                info_files.append({"type": TYPE_TEXTURE, "name": img_name, "params": [], "payload": f.read()})
+    if not info_files:
+        raise RuntimeError("You need at least icon.png in the source folder")
+    info_bytes = build_pack(PARAM_ID_ENUM, info_files)
+
+    top_files = []
+    top_files.append({"type": TYPE_PACKCONFIG, "name": "0", "params": [(7, str(pack_id)), (12, str(pack_version if pack_version is not None else 0))], "payload": b""})
+
+
+
+    if display_name is not None or pack_description is not None:
+        def int32be(v): # macros coz it'll look ugly wihout
+            return ((v >> 24) & 0xFF, (v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF)
+
+        def int16be(v):
+            return ((v >> 8) & 0xFF, v & 0xFF)
+
+        def modified_utf8_bytes(text):
+            if text is None:
+                text = ""
+            out = bytearray()
+            for ch in text:
+                c = ord(ch)
+                if 0x0001 <= c <= 0x007F:
+                    out.append(c & 0xFF)
+                elif c > 0x07FF:
+                    out.append(0xE0 | ((c >> 12) & 0x0F))
+                    out.append(0x80 | ((c >> 6) & 0x3F))
+                    out.append(0x80 | (c & 0x3F))
+                else:
+                    out.append(0xC0 | ((c >> 6) & 0x1F))
+                    out.append(0x80 | (c & 0x3F))
+            return bytes(out)
+
+        def write_utf(buf, text):
+            b = modified_utf8_bytes(text)
+            buf.extend(bytes(int16be(len(b))))
+            buf.extend(b)
+
+        loc = []
+        if display_name is not None:
+            loc.append(("IDS_DISPLAY_NAME", display_name))
+        if pack_description is not None:
+            loc.append(("IDS_TP_DESCRIPTION", pack_description))
+
+        language_bytes = {}
+        for lid in locales:
+            lang_bytes = bytearray()
+            lang_bytes.extend(bytes(int32be(1)))  # langVersion
+            lang_bytes.append(0)  # isStatic byte
+            write_utf(lang_bytes, lid)  # langId
+
+            lang_bytes.extend(bytes(int32be(len(loc))))
+            for (k, v) in loc:
+                write_utf(lang_bytes, k)
+                write_utf(lang_bytes, v)
+            language_bytes[lid] = bytes(lang_bytes)
+
+
+        out = bytearray()
+        out.extend(bytes(int32be(1)))
+        out.extend(bytes(int32be(len(language_bytes))))
+
+        blobs = bytearray()
+        for lid in sorted(language_bytes.keys()):
+            write_utf(out, lid)
+            blob = language_bytes[lid]
+            out.extend(bytes(int32be(len(blob))))
+            blobs.extend(blob) # actually write the loc
+
+        out.extend(blobs)
+
+        languagesloc = bytes(out)
+        top_files.append({"type": TYPE_LOCALISATION, "name": "languages.loc", "params": [], "payload": languagesloc})
+
+    info_name = f"x{scale}/x{scale}Info.pck"
+
+    if pack_version is not None:
+        top_params = [(1, "0"), (0, ""), (12, str(pack_version)), (11, data_filename)]
+    else:
+        top_params = [(1, "0"), (0, ""), (11, data_filename)]
+
+    top_files.append({"type": TYPE_TEXTUREPACK, "name": info_name, "params": top_params, "payload": info_bytes})
+    top_bytes = build_pack(PARAM_ID_ENUM, top_files)
+    with open(os.path.join(output_path, "TexturePack.pck"), "wb") as f:
+        f.write(top_bytes)
+
+    return os.path.abspath(output_path)
+
+
+def launch_console(): # such a stupid fix
     if os.name != 'nt':
         return False
     try:
         import ctypes
         ATTACH_PARENT_PROCESS = -1
-        if ctypes.windll.kernel32.AttachConsole(ATTACH_PARENT_PROCESS): # i stole this snippet from the internet lmao
+        if ctypes.windll.kernel32.AttachConsole(ATTACH_PARENT_PROCESS):
             try:
                 sys.stdout = open("CONOUT$", "w")
                 sys.stderr = open("CONOUT$", "w")
@@ -19,134 +246,6 @@ def launch_console(): # this is such a stupid fix
     except Exception:
         pass
     return False
-
-# it writes two .pck files, an info pack (the icon etc) and a texture pack
-# TODO potentially .arc file for the UI? i know it uses .swf files and i have no idea how they work
-
-PARAM_TYPE_TO_NAME = {0: "DISPLAYNAME", 1: "PACKID", 2: "PACKVERSION", 3: "DATAPATH", 4: "ANIM"}
-TYPE_TEXTURE = 2 # this is a mess but those are the internal IDs the game expects
-TYPE_PACKCONFIG = 4 # i.e that stupid DLCTexturePack.cpp and DLCManager.h i've been fighting with
-TYPE_TEXTUREPACK = 5
-TYPE_LOCALISATION = 6
-TYPE_COLOURTABLE = 9
-
-def pack_u32(value):
-    return struct.pack("<I", int(value) & 0xFFFFFFFF) # 32 bits little endian because this is for PC, for PS3 we'd need big endian, i think?
-
-def utf16z(text):
-    return (text + "\0").encode("utf-16-le")
-
-def make_param(type_id, value):
-    s = value or ""
-    out = bytearray()
-    out += pack_u32(type_id)
-    out += pack_u32(len(s))
-    out += utf16z(s)
-    out += b"\x00\x00" # 4J internally wants 2 bytes padding
-    return bytes(out)
-
-def build_pack(param_map, files):
-    pack = bytearray()
-    pack += pack_u32(3) # pack version, 4J's minimum is 3
-    keys = sorted(param_map.keys())
-    pack += pack_u32(len(keys))
-    for k in keys:
-        pack += make_param(k, param_map[k]) # this makes the header
-
-    pack += pack_u32(len(files))
-    for f in files:
-        name = f["name"] or ""
-        pack += struct.pack("<I", len(f["payload"]) & 0xFFFFFFFF)
-        pack += struct.pack("<I", int(f["type"]) & 0xFFFFFFFF)
-        pack += struct.pack("<I", len(name))
-        pack += (name + "\0").encode("utf-16-le")
-        pack += b"\x00\x00" # 4J wants 2 bytes padding
-
-    for f in files:
-        # i miss cpp types god python is uglyy
-        params = f.get("params", [])
-        pack += pack_u32(len(params))
-        for (tid, val) in params:
-            pack += make_param(tid, val)
-        pack += f["payload"]
-
-    return bytes(pack)
-
-def create_packs(source_dir, pack_id=6767, scale=16, output_path=None):
-    if not output_path:
-        output_path = os.path.join(os.getcwd(), "output")
-    data_path = os.path.join(output_path, "Data")
-
-    os.makedirs(data_path, exist_ok=True)
-
-    all_files = []
-    for root, dirs, filenames in os.walk(source_dir):
-        for f in filenames:
-            if f.lower().endswith(".png") or f.lower().endswith(".col"):
-                all_files.append(os.path.join(root, f))
-
-    if not all_files:
-        raise RuntimeError("No files found in source folder; wrong folder structure?")
-
-    data_map = {}
-    for p in all_files:
-        rel = os.path.relpath(p, source_dir).replace("\\", "/")
-        name_lower = os.path.basename(p).lower()
-        if name_lower in ["icon.png", "comparison.png", "banner.png", "languages.loc"]:
-            continue
-
-        internal_path = ""
-        if rel.lower().startswith("res/"):
-            internal_path = rel
-        elif rel.lower() == "colours.col":
-            internal_path = "colours.col"
-        else:
-            internal_path = "res/" + rel
-
-        with open(p, "rb") as f:
-            data_map[internal_path] = f.read()
-
-    # Data pack (x16Data / x32Data)
-    files = []
-    files.append({"type": TYPE_PACKCONFIG, "name": "0", "params": [(1, "0"), (2, "0")], "payload": b""})
-    for rel in sorted(data_map.keys()):
-        t = TYPE_COLOURTABLE if rel.lower().endswith(".col") else TYPE_TEXTURE
-        files.append({"type": t, "name": rel, "params": [], "payload": data_map[rel]})
-
-    data_bytes = build_pack(PARAM_TYPE_TO_NAME, files)
-    data_filename = f"x{int(scale)}Data.pck"
-    with open(os.path.join(data_path, data_filename), "wb") as f:
-        f.write(data_bytes)
-
-    # info pack.pck
-    info_files = []
-    for img_name in ["icon.png", "banner.png", "comparison.png"]:
-        full_p = os.path.join(source_dir, img_name)
-        if os.path.exists(full_p):
-            with open(full_p, "rb") as f:
-                info_files.append({"type": TYPE_TEXTURE, "name": img_name, "params": [], "payload": f.read()})
-
-    if not info_files:
-        raise RuntimeError("You need at least icon.png in the source folder")
-
-    info_bytes = build_pack(PARAM_TYPE_TO_NAME, info_files)
-
-    top_files = []
-    top_files.append({"type": TYPE_PACKCONFIG, "name": "0", "params": [(1, str(pack_id)), (2, "0")], "payload": b""})
-
-    lang_path = os.path.join(source_dir, "languages.loc")
-    if os.path.exists(lang_path):
-        with open(lang_path, "rb") as f:
-            top_files.append({"type": TYPE_LOCALISATION, "name": "languages.loc", "params": [], "payload": f.read()})
-
-    info_name = f"x{int(scale)}/x{int(scale)}Info.pck"
-    top_files.append({"type": TYPE_TEXTUREPACK, "name": info_name, "params": [(1, "0"), (0, " "), (3, data_filename)], "payload": info_bytes})
-
-    top_bytes = build_pack(PARAM_TYPE_TO_NAME, top_files)
-    with open(os.path.join(output_path, "TexturePack.pck"), "wb") as f:
-        f.write(top_bytes)
-
-    return os.path.abspath(output_path)
 
 
 def main():
@@ -180,7 +279,6 @@ def main():
 
         tk.Label(root, text="Source folder:").grid(row=1, column=0, sticky="w")
         src_var = tk.StringVar()
-
         if initial_source:
             src_var.set(initial_source)
         src_entry = tk.Entry(root, textvariable=src_var, width=60)
@@ -190,11 +288,6 @@ def main():
         image_label = tk.Label(root)
         image_label.grid(row=0, column=3, rowspan=3, padx=8, pady=4)
 
-        def browse():
-            folder = filedialog.askdirectory()
-            src_var.set(folder)
-            update_icon_preview(folder)
-
         def update_icon_preview(folder):
             nonlocal img_holder
             icon_path = os.path.join(folder, "icon.png")
@@ -203,7 +296,7 @@ def main():
                 img_holder = None
                 return
             try:
-                from PIL import Image, ImageTk # if we have pillow
+                from PIL import Image, ImageTk
                 img = Image.open(icon_path)
                 preview_w, preview_h = 256, 256
                 img_w, img_h = img.size
@@ -220,6 +313,12 @@ def main():
                     image_label.config(image="", text="Can't load icon")
                     img_holder = None
 
+        def browse():
+            folder = filedialog.askdirectory()
+            if folder:
+                src_var.set(folder)
+                update_icon_preview(folder)
+
         tk.Button(root, text="Browse...", command=browse).grid(row=1, column=2, padx=4)
 
         tk.Label(root, text="Pack ID:").grid(row=2, column=0, sticky="w")
@@ -232,36 +331,67 @@ def main():
         tk.Radiobutton(root, text="16x", variable=scale_var, value="16").grid(row=4, column=1, sticky="w")
         tk.Radiobutton(root, text="32x", variable=scale_var, value="32").grid(row=4, column=1, sticky="e")
 
-        def do_convert():
+        tk.Label(root, text="Pack Name:").grid(row=6, column=0, sticky="w")
+        name_placeholder = "Pack Name"
+        name_var = tk.StringVar(value="")
+        name_entry = tk.Entry(root, textvariable=name_var, width=60)
+        name_entry.grid(row=6, column=1, padx=4, pady=4)
+
+        tk.Label(root, text="Description:").grid(row=7, column=0, sticky="w")
+        desc_placeholder = "Description"
+        desc_var = tk.StringVar(value="")
+        desc_entry = tk.Entry(root, textvariable=desc_var, width=60)
+        desc_entry.grid(row=7, column=1, padx=4, pady=4)
+
+        def placeholder_text(entry, var, placeholder):
+            var.set(placeholder)
+            entry.config(fg="#8F8F8F")
+
+            def on_focus_in(_):
+                if var.get() == placeholder:
+                    entry.delete(0, "end")
+                    entry.config(fg="black")
+
+            def on_focus_out(_):
+                if var.get().strip() == "":
+                    var.set(placeholder)
+                    entry.config(fg="#838282")
+
+            entry.bind("<FocusIn>", on_focus_in)
+            entry.bind("<FocusOut>", on_focus_out)
+
+        placeholder_text(name_entry, name_var, name_placeholder)
+        placeholder_text(desc_entry, desc_var, desc_placeholder)
+
+        def convert():
             src = src_var.get()
             try:
                 pid = int(id_var.get())
             except Exception:
-                messagebox.showerror("Error", "Pack ID must be a number") # check all values are valid before giving it to converter
+                messagebox.showerror("Error", "Enter a number!")
                 return
             sc = int(scale_var.get())
             if not src or not os.path.isdir(src):
                 messagebox.showerror("Error", "Please select a valid source directory")
                 return
             try:
-                out = create_packs(src, pack_id=pid, scale=sc)
+                displaynametxt = name_var.get()
+                displaydesctxt = desc_var.get()
+                out = create_packs(src, pack_id=pid, scale=sc, display_name_override=displaynametxt, description_override=displaydesctxt)
                 messagebox.showinfo("Done", f"All done! your pack is at {out}")
             except Exception as e:
                 messagebox.showerror("Error", str(e))
 
-        tk.Button(root, text="Convert!", command=do_convert, width=20).grid(row=5, column=1, pady=8)
+        tk.Button(root, text="Convert!", command=convert, width=20).grid(row=5, column=1, pady=8)
         if initial_source:
-            root.after(100, lambda: update_icon_preview(initial_source)) # thanks tkdocs.com
-            
+            root.after(100, lambda: update_icon_preview(initial_source))
         root.mainloop()
         return
 
     if not args.gui:
-        # console mode
         if not args.source_dir:
             parser.print_help()
             return
-
         out = create_packs(args.source_dir, pack_id=args.id, scale=int(args.scale))
         print("All done! Output:", out)
 
