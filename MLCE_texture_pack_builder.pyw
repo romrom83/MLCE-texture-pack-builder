@@ -86,7 +86,11 @@ def build_pack(param_map, files): # big and ugly but works
 
 def create_packs(source_dir, pack_id=6767, scale=16, output_path=None, display_name_override=None, description_override=None):
     if not output_path:
-        output_path = os.path.join(os.getcwd(), "output")
+        if getattr(sys, 'frozen', False):
+            base_dir = os.path.dirname(sys.executable)
+        else:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+        output_path = os.path.join(base_dir, "output")
     data_path = os.path.join(output_path, "Data")
     os.makedirs(data_path, exist_ok=True)
 
@@ -296,22 +300,13 @@ def main():
                 img_holder = None
                 return
             try:
-                from PIL import Image, ImageTk
-                img = Image.open(icon_path)
-                preview_w, preview_h = 256, 256
-                img_w, img_h = img.size
-                scale = min(preview_w / img_w, preview_h / img_h)
-                new_size = (max(1, int(img_w * scale)), max(1, int(img_h * scale)))
-                img = img.resize(new_size, Image.LANCZOS)
-                img_holder = ImageTk.PhotoImage(img)
+                img_holder = tk.PhotoImage(file=icon_path)
                 image_label.config(image=img_holder, text="")
             except Exception:
-                try:
-                    img_holder = tk.PhotoImage(file=icon_path)
-                    image_label.config(image=img_holder, text="")
-                except Exception:
-                    image_label.config(image="", text="Can't load icon")
-                    img_holder = None
+                image_label.config(image="", text="Can't load icon")
+                img_holder = None
+            
+                
 
         def browse():
             folder = filedialog.askdirectory()
