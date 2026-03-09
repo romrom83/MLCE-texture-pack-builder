@@ -1,4 +1,4 @@
-**Currently broken on the MinecraftConsole fork due to some patches they added, it will still work on the original source code while i'm working to make this compatible with both**
+**Currently doesn't work on the MinecraftConsole fork due to some patches they added, it'll still work on the original source code while I'm working to make this compatible with both**
 
 # MLCE-texture-pack-builder
 Simple python script to compile custom texture packs for Minecraft Legacy Console Edition
@@ -19,5 +19,5 @@ What could come next:
   
 Those files are used to override any text color and UI in the game, that's also why I'd be more inclined to call them ressource packs and not texture packs!
 
-If you dont trust the exe you can compile the .pyw yourself, you just need pillow and tkinter
+If you dont trust the exe you can compile the .pyw yourself, I removed all dependencies
 
