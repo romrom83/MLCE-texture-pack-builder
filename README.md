@@ -15,7 +15,7 @@ thanks so much to ContinuedOak for providing this pack!
 What could come next:
 - Support for the following files: Languages.loc Colours.col Media.arc
 - Java to LCE texture pack automatic converter (currently you have to stitch your texture atlas yourself, very time intensive!)
-
+- Skin packs, map packs etc
 Those files are used to override any text color and UI in the game, that's also why I'd be more inclined to call them ressource packs and not texture packs!
 
 If you dont trust the exe you can compile the .pyw yourself, you just need pillow and tkinter
