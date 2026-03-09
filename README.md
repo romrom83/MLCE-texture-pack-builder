@@ -1,9 +1,9 @@
 **Currently broken on the MinecraftConsole fork due to some patches they added, it will still work on the original source code while i'm working to make this compatible with both**
 
 # MLCE-texture-pack-builder
-Simple python script to make custom texture packs for Minecraft Legacy Console Edition
+Simple python script to compile custom texture packs for Minecraft Legacy Console Edition
 
-I've provided an example pack in the release, keep the file structure the same or the game will crash  
+You have to keep the file structure the same as the example source pack I provided or the game will crash!  
 the game should accept x32 textures and more, But the script that generate them will be added in a future commit
 
 just drag the source folder on the script and move what's inside the output in a subfolder of your DLC folder
