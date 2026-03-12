@@ -2,6 +2,7 @@ import sys
 import os
 import struct
 import argparse
+import re
 
 PARAM_ID_ENUM = {
     0: "DISPLAYNAME",
@@ -90,7 +91,15 @@ def create_packs(source_dir, pack_id=6767, scale=16, output_path=None, display_n
             base_dir = os.path.dirname(sys.executable)
         else:
             base_dir = os.path.dirname(os.path.abspath(__file__))
-        output_path = os.path.join(base_dir, "output")
+        output_root = os.path.join(base_dir, "output")
+        if display_name_override and display_name_override.strip() != "":
+            pack_name = display_name_override.strip()
+        else:
+            pack_name = os.path.basename(os.path.abspath(source_dir))
+        pack_dirname = "".join(c for c in pack_name if c.isalnum() or c in " -_.").strip().replace(" ", "_")
+        if not pack_dirname:
+            pack_dirname = "my_awesome_pack"
+        output_path = os.path.join(output_root, pack_dirname)
     data_path = os.path.join(output_path, "Data")
     os.makedirs(data_path, exist_ok=True)
 
@@ -155,13 +164,13 @@ def create_packs(source_dir, pack_id=6767, scale=16, output_path=None, display_n
 
 
     if display_name is not None or pack_description is not None:
-        def int32be(v): # macros coz it'll look ugly wihout
+        def int32be(v):
             return ((v >> 24) & 0xFF, (v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF)
 
         def int16be(v):
             return ((v >> 8) & 0xFF, v & 0xFF)
 
-        def modified_utf8_bytes(text):
+        def fourj_utf_8(text):
             if text is None:
                 text = ""
             out = bytearray()
@@ -179,7 +188,7 @@ def create_packs(source_dir, pack_id=6767, scale=16, output_path=None, display_n
             return bytes(out)
 
         def write_utf(buf, text):
-            b = modified_utf8_bytes(text)
+            b = fourj_utf_8(text)
             buf.extend(bytes(int16be(len(b))))
             buf.extend(b)
 
@@ -285,12 +294,17 @@ def main():
         src_var = tk.StringVar()
         if initial_source:
             src_var.set(initial_source)
-        src_entry = tk.Entry(root, textvariable=src_var, width=60)
-        src_entry.grid(row=1, column=1, padx=4, pady=10)
+        src_frame = tk.Frame(root)
+        src_frame.grid(row=1, column=1, padx=4, pady=10, sticky="we")
+        src_entry = tk.Entry(src_frame, textvariable=src_var)
+        src_entry.pack(side="left", fill="x", expand=True)
 
         img_holder = None
         image_label = tk.Label(root)
         image_label.grid(row=0, column=3, rowspan=3, padx=8, pady=4)
+
+        pack_detect_var = tk.StringVar(value="")
+        tk.Label(root, textvariable=pack_detect_var, fg="#747474").grid(row=5, column=1, sticky="w", padx=4)
 
         def update_icon_preview(folder):
             nonlocal img_holder
@@ -298,6 +312,26 @@ def main():
             if not os.path.exists(icon_path):
                 image_label.config(image="", text="No icon.png")
                 img_holder = None
+                terrain_path = os.path.join(folder, "res", "terrain.png")
+                try:
+                    if os.path.exists(terrain_path):
+                        timg = tk.PhotoImage(file=terrain_path)
+                        w = timg.width()
+                        h = timg.height()
+                        if w == 256 and h == 256:
+                            pack_detect_var.set("256x256 atlas detected, this pack will only work on Minecraft Legacy Console Edition")
+                        elif w == 256 and h == 512:
+                            pack_detect_var.set("256x512 atlas detected, this DLC will only work on Minecraft Consoles fork")
+                        elif w == 512 and h == 512:
+                            pack_detect_var.set("512x512 atlas detected, this pack will only work on Minecraft Legacy Console Edition")
+                        elif w == 512 and h == 1024:
+                            pack_detect_var.set("512x1024 atlas detected, this DLC will only work on Minecraft Consoles fork")
+                        else:
+                            pack_detect_var.set("")
+                    else:
+                        pack_detect_var.set("")
+                except Exception:
+                    pack_detect_var.set("")
                 return
             try:
                 img_holder = tk.PhotoImage(file=icon_path)
@@ -305,7 +339,26 @@ def main():
             except Exception:
                 image_label.config(image="", text="Can't load icon")
                 img_holder = None
-            
+            terrain_path = os.path.join(folder, "res", "terrain.png")
+            try:
+                if os.path.exists(terrain_path):
+                    timg = tk.PhotoImage(file=terrain_path)
+                    w = timg.width()
+                    h = timg.height()
+                    if w == 256 and h == 256:
+                        pack_detect_var.set("256x256 atlas detected, this pack will only work on Minecraft Legacy Console Edition")
+                    elif w == 256 and h == 512:
+                        pack_detect_var.set("256x512 atlas detected, this DLC will only work on Minecraft Consoles fork")
+                    elif w == 512 and h == 512:
+                        pack_detect_var.set("512x512 atlas detected, this pack will only work on Minecraft Legacy Console Edition")
+                    elif w == 512 and h == 1024:
+                        pack_detect_var.set("512x1024 atlas detected, this DLC will only work on Minecraft Consoles fork")
+                    else:
+                        pack_detect_var.set("")
+                else:
+                    pack_detect_var.set("")
+            except Exception:
+                pack_detect_var.set("")
                 
 
         def browse():
@@ -314,7 +367,17 @@ def main():
                 src_var.set(folder)
                 update_icon_preview(folder)
 
-        tk.Button(root, text="Browse...", command=browse).grid(row=1, column=2, padx=4)
+        def show_help():
+            help_win = tk.Toplevel(root)
+            help_win.title("Help")
+            help_win.geometry("520x240")
+            tk.Label(help_win, text="Whatcha need help with?").pack(anchor="w", padx=8, pady=4)
+            txt = tk.Text(help_win, wrap="word")
+            txt.pack(fill="both", expand=True, padx=8, pady=4)
+            txt.insert("1.0", "If your game crashes with the DLC loaded: \nMake sure you're using the correct pack template for the game, MCLE uses a 256x256 terrain.png, and the Minecraft-Consoles fork requires a 256x512 terrain.png for the features it adds.")
+            tk.Button(help_win, text="Close", command=help_win.destroy).pack(pady=6)
+
+        tk.Button(src_frame, text="Browse...", command=browse).pack(side="right", padx=(4,0))
 
         tk.Label(root, text="Pack ID:").grid(row=2, column=0, sticky="w")
         id_var = tk.StringVar(value=str(args.id))
@@ -330,30 +393,30 @@ def main():
         name_placeholder = "Pack Name"
         name_var = tk.StringVar(value="")
         name_entry = tk.Entry(root, textvariable=name_var, width=60)
-        name_entry.grid(row=6, column=1, padx=4, pady=4)
+        name_entry.grid(row=6, column=1, padx=4, pady=4, sticky="w")
 
         tk.Label(root, text="Description:").grid(row=7, column=0, sticky="w")
         desc_placeholder = "Description"
         desc_var = tk.StringVar(value="")
         desc_entry = tk.Entry(root, textvariable=desc_var, width=60)
-        desc_entry.grid(row=7, column=1, padx=4, pady=4)
+        desc_entry.grid(row=7, column=1, padx=4, pady=4, sticky="w")
 
         def placeholder_text(entry, var, placeholder):
             var.set(placeholder)
             entry.config(fg="#8F8F8F")
 
-            def on_focus_in(_):
+            def focus_in(_):
                 if var.get() == placeholder:
                     entry.delete(0, "end")
                     entry.config(fg="black")
 
-            def on_focus_out(_):
+            def focus_out(_):
                 if var.get().strip() == "":
                     var.set(placeholder)
                     entry.config(fg="#838282")
 
-            entry.bind("<FocusIn>", on_focus_in)
-            entry.bind("<FocusOut>", on_focus_out)
+            entry.bind("<FocusIn>", focus_in)
+            entry.bind("<FocusOut>", focus_out)
 
         placeholder_text(name_entry, name_var, name_placeholder)
         placeholder_text(desc_entry, desc_var, desc_placeholder)
@@ -377,7 +440,13 @@ def main():
             except Exception as e:
                 messagebox.showerror("Error", str(e))
 
-        tk.Button(root, text="Convert!", command=convert, width=20).grid(row=5, column=1, pady=8)
+        root.grid_columnconfigure(1, weight=0)
+        root.grid_columnconfigure(3, weight=1)
+        root.grid_rowconfigure(8, weight=1)
+
+        tk.Button(root, text="Convert!", command=convert, width=20).grid(row=9, column=1, pady=8, padx=90, sticky="w")
+        tk.Button(root, text="Help", command=show_help).grid(row=9, column=3, pady=8, padx=8, sticky="e")
+
         if initial_source:
             root.after(100, lambda: update_icon_preview(initial_source))
         root.mainloop()
